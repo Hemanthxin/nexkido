@@ -1,0 +1,36 @@
+{
+  "name": "schoolride",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build --turbopack",
+    "start": "next start",
+    "predev": "node -e \"const f=require('fs');for(const n of ['worker','shared'])f.copyFileSync('node_modules/maplibre-gl/dist/maplibre-gl-'+n+'.mjs','public/maplibre-gl-'+n+'.mjs')\"",
+    "prebuild": "node -e \"const f=require('fs');for(const n of ['worker','shared'])f.copyFileSync('node_modules/maplibre-gl/dist/maplibre-gl-'+n+'.mjs','public/maplibre-gl-'+n+'.mjs')\""
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
+    "bcryptjs": "^3.0.3",
+    "gsap": "^3.15.0",
+    "jose": "^6.2.13",
+    "lenis": "^1.3.27",
+    "maplibre-gl": "^6.16.0",
+    "next": "^15.5.28",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.186.0",
+    "autoprefixer": "^10.6.1",
+    "postcss": "^8.5.31",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^6.0.3"
+  }
+}
