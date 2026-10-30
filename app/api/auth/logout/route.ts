@@ -1,9 +1,9 @@
 import { currentUser, destroySession } from "@/lib/auth";
-import { log } from "@/lib/db";
+import { log, withDB } from "@/lib/db";
 
 export async function POST() {
   const u = await currentUser();
-  if (u) log(u, "Signed out");
+  if (u) await withDB((d) => log(d, u, "Signed out"));
   await destroySession();
   return Response.json({ ok: true });
 }

@@ -1,6 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
-import { db, Role, User } from "./db";
+import { findUserById, Role, User } from "./db";
 
 const secret = () => new TextEncoder().encode(process.env.JWT_SECRET || "dev-secret-change-me");
 const COOKIE = "sr_session";
@@ -16,7 +16,7 @@ export async function currentUser(): Promise<User | null> {
   if (!t) return null;
   try {
     const { payload } = await jwtVerify(t, secret());
-    return db().users.find((u) => u.id === payload.sub) ?? null;
+    return typeof payload.sub === "string" ? await findUserById(payload.sub) : null;
   } catch { return null; }
 }
 /** Server-side role guard for API routes. */

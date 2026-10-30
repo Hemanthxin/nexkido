@@ -1,4 +1,4 @@
-import { db, save, uid, log, Alert } from "@/lib/db";
+import { withDB, uid, log, Alert } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
 import { haversineKm } from "@/lib/geo";
 
@@ -10,11 +10,10 @@ const THRESHOLDS: { km: number; kind: "2km" | "1km"; text: string }[] = [
 export async function GET() {
   const u = await requireRole("driver");
   if (!u) return Response.json({ error: "Forbidden" }, { status: 403 });
-  const d = db();
-  return Response.json({
+  return withDB((d) => Response.json({
     trip: d.trips[u.id] ?? null,
     stops: d.users.filter((p) => p.role === "parent" && p.driverId === u.id).map((p) => ({ id: p.id, child: p.childName, stop: p.stop })),
-  });
+  }));
 }
 
 // action: start | location | end
@@ -22,13 +21,13 @@ export async function POST(req: Request) {
   const u = await requireRole("driver");
   if (!u) return Response.json({ error: "Forbidden" }, { status: 403 });
   const b = await req.json().catch(() => ({}));
-  const d = db();
+  return withDB((d) => {
   const parents = d.users.filter((p) => p.role === "parent" && p.driverId === u.id && p.stop);
   const notify = (parentId: string, kind: Alert["kind"], message: string) => {
     d.alerts.push({ id: uid(), parentId, kind, message, ts: Date.now() });
     if (kind === "2km" || kind === "1km" || kind === "arrived") {
       const p = d.users.find((x) => x.id === parentId);
-      log(u, `Alert sent: ${kind === "arrived" ? "arrived" : kind}`, `to ${p?.name ?? "parent"} (${p?.childName ?? "child"})`);
+      log(d, u, `Alert sent: ${kind === "arrived" ? "arrived" : kind}`, `to ${p?.name ?? "parent"} (${p?.childName ?? "child"})`);
     }
   };
 
@@ -36,7 +35,7 @@ export async function POST(req: Request) {
     d.trips[u.id] = { driverId: u.id, active: true, startedAt: Date.now(), updatedAt: Date.now(), trail: [] };
     d.alerts = d.alerts.filter((a) => !parents.some((p) => p.id === a.parentId)); // new trip -> fresh alert state
     parents.forEach((p) => notify(p.id, "started", "Your child's bus has started its journey."));
-    log(u, "Started trip", `bus ${u.busNo ?? "-"}, ${parents.length} stops`);
+    log(d, u, "Started trip", `bus ${u.busNo ?? "-"}, ${parents.length} stops`);
   } else if (b.action === "location") {
     const t = d.trips[u.id];
     const lat = Number(b.lat), lng = Number(b.lng);
@@ -63,8 +62,8 @@ export async function POST(req: Request) {
   } else if (b.action === "end") {
     if (d.trips[u.id]) d.trips[u.id].active = false;
     parents.forEach((p) => notify(p.id, "ended", "Today's bus trip is marked complete."));
-    log(u, "Ended trip", `bus ${u.busNo ?? "-"}`);
+    log(d, u, "Ended trip", `bus ${u.busNo ?? "-"}`);
   } else return Response.json({ error: "Unknown action" }, { status: 400 });
-  save();
   return Response.json({ trip: d.trips[u.id] });
+  });
 }
