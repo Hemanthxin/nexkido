@@ -57,3 +57,12 @@ export function offset(p: LL, bearing: number, m: number): LL {
 export function ringAround(c: LL, m: number, n = 40): [number, number][] {
   return Array.from({ length: n + 1 }, (_, i) => { const a = (i / n) * Math.PI * 2; const q = offset(c, (a * 180) / Math.PI, m); return [q.lng, q.lat] as [number, number]; });
 }
+
+/** The part of the route already driven, from its start up to s. */
+export function sliceTo(path: Path, s: number): [number, number][] {
+  const p = pointAt(path, s);
+  const out: [number, number][] = [];
+  for (let i = 0; i < path.pts.length; i++) if (path.cum[i] < s) out.push(path.pts[i]);
+  out.push([p.lng, p.lat]);
+  return out.length > 1 ? out : [out[0], out[0]];
+}

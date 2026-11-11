@@ -47,3 +47,12 @@ export function dotEl(label?: string) {
   if (label) d.title = label;
   return d;
 }
+
+/** Where the trip began: a white dot with a blue ring, the way Google marks a start point. */
+export function originEl() {
+  const d = document.createElement("div");
+  d.style.cssText = "width:22px;height:22px;pointer-events:none";
+  d.innerHTML = `<svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,.4))"><circle cx="11" cy="11" r="8.5" fill="#fff" stroke="#1A73E8" stroke-width="4"/></svg>`;
+  d.title = "Start";
+  return d;
+}

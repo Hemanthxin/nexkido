@@ -16,6 +16,7 @@ export type User = {
 };
 export type Trip = {
   driverId: string; active: boolean; startedAt: number; updatedAt: number;
+  start?: { lat: number; lng: number }; // where the bus first reported from on this trip
   lat?: number; lng?: number; accuracy?: number; heading?: number; speed?: number; // speed in m/s, heading in degrees
   sent?: Record<string, string[]>; // parentId -> alert kinds already sent on this trip
 };

@@ -3,12 +3,12 @@ import { useEffect, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
 import { STYLE_URL, guardStyle } from "@/lib/mapstyle";
 import { haversineKm, type LL } from "@/lib/geo";
-import { buildPath, lerpAngle, offset, pointAt, project, ringAround, sliceFrom, type Path } from "@/lib/path";
-import { busEl, pinEl, stopEl } from "@/lib/mapicons";
+import { buildPath, lerpAngle, offset, pointAt, project, ringAround, sliceFrom, sliceTo, type Path } from "@/lib/path";
+import { busEl, originEl, pinEl, stopEl } from "@/lib/mapicons";
 
 if (typeof window !== "undefined") maplibregl.setWorkerUrl("/maplibre-gl-worker.mjs");
 
-export type Bus = { lat: number; lng: number; heading: number | null; speed: number | null; accuracy: number | null; at: number }; // speed m/s, at = when this fix was current (client clock)
+export type Bus = { lat: number; lng: number; heading: number | null; speed: number | null; accuracy: number | null; start?: LL | null; at: number }; // speed m/s, at = when this fix was current (client clock)
 export type StopMark = { id: string; lat: number; lng: number; n: number; done?: boolean; label?: string };
 export type RouteInfo = { remainingM: number; etaS: number; totalM: number; provider: string; onRoute: boolean };
 export type Mode = "follow" | "overview" | "free";
@@ -56,20 +56,27 @@ export default function LiveMap(props: Props) {
     const destMarker = new maplibregl.Marker({ element: pinNode, anchor: "bottom" });
     const bubble = pinNode.querySelector<HTMLElement>(".nk-bubble")!;
     let destOn = false;
+    const originMarker = new maplibregl.Marker({ element: originEl() });
+    let originOn = false;
     const stopMarkers = new Map<string, maplibregl.Marker>();
 
     // everything the animation loop needs between frames
     const S = {
       path: null as Path | null, dur: 0, dist: 0, provider: "", routeAt: 0, routeTry: 0, fetching: false, destKey: "",
+      origin: null as LL | null, full: null as Path | null, fullTry: 0, fullFetching: false, trail: [] as [number, number][], doneAt: 0,
       s: -1, cur: null as LL | null, disp: null as LL | null, heading: 0, camB: 0, vEma: 0, off: 0,
       srcAt: 0, infoAt: 0, camAt: 0, last: performance.now(), loaded: false, fitted: false, seenFlag: modeFlag.current,
     };
 
     const overlays = () => {
       if (!map.getSource("route")) {
+        const round = { "line-cap": "round" as const, "line-join": "round" as const };
+        map.addSource("done", { type: "geojson", data: EMPTY });
         map.addSource("route", { type: "geojson", data: EMPTY });
-        map.addLayer({ id: "route-casing", type: "line", source: "route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": 11, "line-opacity": 0.95 } });
-        map.addLayer({ id: "route-line", type: "line", source: "route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#0F1D2E", "line-width": 6 } });
+        map.addLayer({ id: "done-casing", type: "line", source: "done", layout: round, paint: { "line-color": "#ffffff", "line-width": 10, "line-opacity": 0.9 } });
+        map.addLayer({ id: "done-line", type: "line", source: "done", layout: round, paint: { "line-color": "#9AA0A6", "line-width": 5.5 } });
+        map.addLayer({ id: "route-casing", type: "line", source: "route", layout: round, paint: { "line-color": "#ffffff", "line-width": 12, "line-opacity": 0.95 } });
+        map.addLayer({ id: "route-line", type: "line", source: "route", layout: round, paint: { "line-color": "#1A73E8", "line-width": 7 } });
         map.addSource("acc", { type: "geojson", data: EMPTY });
         map.addLayer({ id: "acc-fill", type: "fill", source: "acc", paint: { "fill-color": "#FFB81C", "fill-opacity": 0.2 } }, "route-casing");
       }
@@ -104,11 +111,25 @@ export default function LiveMap(props: Props) {
       S.fetching = false;
     }
 
+    /** The whole trip from where it began to the destination, fetched once, so the line reads start to finish like Google. */
+    async function fetchFull(from: LL, to: LL) {
+      S.fullFetching = true; S.fullTry = Date.now();
+      try {
+        const r = await fetch(`/api/route?from=${from.lat},${from.lng}&to=${to.lat},${to.lng}`, { cache: "no-store" });
+        if (!r.ok) throw new Error(String(r.status));
+        const j = await r.json();
+        if (Array.isArray(j.coords) && j.coords.length > 1 && S.origin && S.origin.lat === from.lat && S.origin.lng === from.lng) S.full = buildPath(j.coords);
+      } catch { /* the grey trail and the live route still draw; try again later */ }
+      S.fullFetching = false;
+    }
+
     const fit = (disp: LL | null, dest: LL | null, ms: number, pad: Pad) => {
       const pts: LL[] = [];
       if (disp) pts.push(disp);
       if (dest) pts.push(dest);
-      if (S.path && S.s >= 0) { const rest = sliceFrom(S.path, S.s); const n = Math.max(1, Math.floor(rest.length / 30)); for (let i = 0; i < rest.length; i += n) pts.push({ lat: rest[i][1], lng: rest[i][0] }); }
+      if (S.origin) pts.push(S.origin);
+      const whole: [number, number][] | null = S.full ? S.full.pts : S.path && S.s >= 0 ? sliceFrom(S.path, S.s) : null;
+      if (whole) { const n = Math.max(1, Math.floor(whole.length / 40)); for (let i = 0; i < whole.length; i += n) pts.push({ lat: whole[i][1], lng: whole[i][0] }); }
       if (!pts.length) return;
       if (pts.length === 1) { map.easeTo({ center: [pts[0].lng, pts[0].lat], zoom: 15.5, bearing: 0, pitch: 0, padding: pad, duration: ms }); return; }
       const b = new maplibregl.LngLatBounds();
@@ -130,11 +151,13 @@ export default function LiveMap(props: Props) {
       // destination pin
       if (dest) { destMarker.setLngLat([dest.lng, dest.lat]); if (!destOn) { destMarker.addTo(map); destOn = true; } } else if (destOn) { destMarker.remove(); destOn = false; }
       const dKey = dest ? `${dest.lat.toFixed(5)},${dest.lng.toFixed(5)}` : "";
-      if (dKey !== S.destKey) { S.destKey = dKey; S.path = null; S.s = -1; S.fitted = false; (map.getSource("route") as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY); }
+      const clearLines = () => { (map.getSource("route") as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY); (map.getSource("done") as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY); };
+      const resetLeg = () => { S.origin = null; S.full = null; S.trail = []; S.fullTry = 0; if (originOn) { originMarker.remove(); originOn = false; } };
+      if (dKey !== S.destKey) { S.destKey = dKey; S.path = null; S.s = -1; S.fitted = false; resetLeg(); clearLines(); }
 
       if (!bus) {
-        busMarker.getElement().style.display = "none"; S.cur = null; S.disp = null; S.path = null;
-        (map.getSource("route") as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY);
+        busMarker.getElement().style.display = "none"; S.cur = null; S.disp = null; S.path = null; resetLeg();
+        clearLines();
         (map.getSource("acc") as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY);
         bubble.style.display = "none"; onInfo?.(null);
         if (dest && (!S.fitted || modeChanged)) { S.fitted = true; map.easeTo({ center: [dest.lng, dest.lat], zoom: 15.5, bearing: 0, pitch: 0, padding: pad, duration: 700 }); }
@@ -176,7 +199,25 @@ export default function LiveMap(props: Props) {
       // road route to the destination: fetch, and refetch when stale or when the bus leaves it
       if (dest && !S.fetching && now - S.routeTry > 3000 && (!S.path || now - S.routeAt > 20000 || (S.off > 3 && now - S.routeAt > 5000))) void fetchRoute(disp, dest);
 
-      if (S.path && S.s >= 0 && now - S.srcAt > 250) { S.srcAt = now; (map.getSource("route") as maplibregl.GeoJSONSource | undefined)?.setData(line(sliceFrom(S.path, S.s))); }
+      // where this leg began: the trip's first fix (sent by the server), or, on the driver's own screen, where the bus was when the leg started
+      if (!S.origin && dest) { S.origin = bus.start ?? { lat: disp.lat, lng: disp.lng }; S.trail = [[S.origin.lng, S.origin.lat]]; }
+      if (S.origin && dest) {
+        originMarker.setLngLat([S.origin.lng, S.origin.lat]);
+        if (!originOn) { originMarker.addTo(map); originOn = true; }
+        if (!S.full && !S.fullFetching && now - S.fullTry > 6000 && haversineKm(S.origin, dest) > 0.05) void fetchFull(S.origin, dest);
+      }
+      const last = S.trail[S.trail.length - 1];
+      if (last && haversineKm({ lat: last[1], lng: last[0] }, disp) * 1000 > 12) { S.trail.push([disp.lng, disp.lat]); if (S.trail.length > 3000) S.trail.shift(); }
+
+      if (now - S.srcAt > 250 && (S.path ? S.s >= 0 : !!S.full)) {
+        S.srcAt = now;
+        const pf = S.full ? project(S.full, disp) : null;
+        const onFull = !!(pf && S.full && pf.dist <= 80); // on the planned road: draw one clean line, grey behind the bus and blue ahead
+        const rest = onFull ? sliceFrom(S.full!, pf!.s) : S.path && S.s >= 0 ? sliceFrom(S.path, S.s) : null;
+        const done = onFull ? sliceTo(S.full!, pf!.s) : S.trail.length > 1 ? [...S.trail, [disp.lng, disp.lat] as [number, number]] : null;
+        if (rest) (map.getSource("route") as maplibregl.GeoJSONSource | undefined)?.setData(line(rest));
+        (map.getSource("done") as maplibregl.GeoJSONSource | undefined)?.setData(done ? line(done) : EMPTY);
+      }
 
       // numbers for the screen, once a second
       if (now - S.infoAt > 1000) {
@@ -207,7 +248,7 @@ export default function LiveMap(props: Props) {
     };
     raf = requestAnimationFrame(tick);
 
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); stopMarkers.forEach((m) => m.remove()); map.remove(); };
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); stopMarkers.forEach((m) => m.remove()); originMarker.remove(); map.remove(); };
   }, []);
 
   return <div ref={box} className="h-full w-full" />;

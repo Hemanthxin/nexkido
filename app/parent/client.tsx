@@ -11,14 +11,14 @@ import { useMedia } from "@/lib/useMedia";
 import { chime } from "@/lib/sound";
 
 type Alert = { id: string; kind: string; message: string; ts: number };
-type BusP = { lat: number; lng: number; heading: number | null; speedKmh: number | null; accuracy: number | null; ageMs: number };
+type BusP = { lat: number; lng: number; heading: number | null; speedKmh: number | null; accuracy: number | null; start?: { lat: number; lng: number } | null; ageMs: number };
 type Snap = {
   child?: string; stop: { name: string; lat: number; lng: number }; busNo?: string; driverName?: string; driverPhone: string | null;
   active: boolean; startedAt: number | null; bus: BusP | null; alerts: Alert[];
 };
 
 const TITLE: Record<string, string> = { started: "Bus has left", "2km": "Bus is 2 km away", "1km": "Bus is 1 km away", arrived: "Bus has arrived", ended: "Trip complete", changed: "Bus changed" };
-const toBus = (p: BusP): Bus => ({ lat: p.lat, lng: p.lng, heading: p.heading, speed: p.speedKmh != null ? p.speedKmh / 3.6 : null, accuracy: p.accuracy, at: Date.now() - p.ageMs });
+const toBus = (p: BusP): Bus => ({ lat: p.lat, lng: p.lng, heading: p.heading, speed: p.speedKmh != null ? p.speedKmh / 3.6 : null, accuracy: p.accuracy, start: p.start ?? null, at: Date.now() - p.ageMs });
 const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const dist = (m: number) => (m < 950 ? `${Math.max(10, Math.round(m / 10) * 10)} m` : `${(m / 1000).toFixed(1)} km`);
 

@@ -94,7 +94,7 @@ export async function getTrip(driverId: string) { await liveReady(); return L.tr
 export async function allTrips(): Promise<Record<string, Trip>> { await liveReady(); return Object.fromEntries(L.trips); }
 export function dropTrips(ids: string[]) { ids.forEach((i) => { L.trips.delete(i); L.roster.delete(i); L.saved.delete(i); }); }
 export const reachedIds = (t?: Trip) => Object.entries(t?.sent ?? {}).filter(([, k]) => k.includes("arrived")).map(([id]) => id);
-export const busPayload = (t: Trip) => ({ lat: t.lat!, lng: t.lng!, heading: t.heading ?? null, speedKmh: t.speed != null ? Math.round(t.speed * 3.6) : null, accuracy: t.accuracy ?? null, ageMs: Math.max(0, Date.now() - t.updatedAt) });
+export const busPayload = (t: Trip) => ({ lat: t.lat!, lng: t.lng!, heading: t.heading ?? null, speedKmh: t.speed != null ? Math.round(t.speed * 3.6) : null, accuracy: t.accuracy ?? null, start: t.start ?? null, ageMs: Math.max(0, Date.now() - t.updatedAt) });
 
 export async function startTrip(driver: User) {
   await liveReady();
@@ -152,6 +152,7 @@ export async function ping(driver: User, b: Record<string, unknown>): Promise<Pi
   const heading = Number.isFinite(rep) && (speed ?? 0) > 0.5 ? rep : prev && movedM > 4 && !still ? bearingDeg(prev, { lat, lng }) : t.heading;
 
   if (!still) { t.lat = lat; t.lng = lng; }
+  t.start ??= { lat: t.lat ?? lat, lng: t.lng ?? lng };
   Object.assign(t, { accuracy: acc, heading, speed: still ? 0 : speed, updatedAt: now });
   persist(t);
 
