@@ -99,7 +99,7 @@ export const busPayload = (t: Trip) => ({ lat: t.lat!, lng: t.lng!, heading: t.h
 export async function startTrip(driver: User) {
   await liveReady();
   const parents = await roster(driver.id);
-  const t: Trip = { driverId: driver.id, active: true, startedAt: Date.now(), updatedAt: Date.now(), sent: {} };
+  const t: Trip = { driverId: driver.id, active: true, startedAt: Date.now(), updatedAt: Date.now(), sent: {}, depot: L.trips.get(driver.id)?.depot };
   L.trips.set(driver.id, t);
   parents.forEach((p) => L.alerts.set(p.id, []));
   persist(t, true);
@@ -152,7 +152,7 @@ export async function ping(driver: User, b: Record<string, unknown>): Promise<Pi
   const heading = Number.isFinite(rep) && (speed ?? 0) > 0.5 ? rep : prev && movedM > 4 && !still ? bearingDeg(prev, { lat, lng }) : t.heading;
 
   if (!still) { t.lat = lat; t.lng = lng; }
-  t.start ??= { lat: t.lat ?? lat, lng: t.lng ?? lng };
+  if (!t.start) { t.start = { lat: t.lat ?? lat, lng: t.lng ?? lng }; t.depot = t.start; }
   Object.assign(t, { accuracy: acc, heading, speed: still ? 0 : speed, updatedAt: now });
   persist(t);
 

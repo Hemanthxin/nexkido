@@ -105,7 +105,7 @@ export default function DriverClient({ name, busNo }: { name: string; busNo?: st
     try {
       const r = await post({ action: "start" });
       if (!r.ok) throw new Error();
-      setReached(new Set()); lastSend.current = 0; setSent(null);
+      setReached(new Set()); lastSend.current = 0; setSent(null); firstFix.current = fix ? { lat: fix.lat, lng: fix.lng } : firstFix.current;
       setActive(true); setMode("follow"); setOpen(false);
       void load();
     } catch { setErr("Couldn't start the trip. Check your connection and try again."); }
@@ -125,6 +125,18 @@ export default function DriverClient({ name, busNo }: { name: string; busNo?: st
     if (!fix) return todo[0];
     return todo.reduce((a, b) => (haversineKm(fix, a.stop) <= haversineKm(fix, b.stop) ? a : b));
   }, [todo, fix]);
+  // the whole run, in the order a driver would naturally take it: nearest stop first from where the trip began, then the nearest to that, and so on
+  const firstFix = useRef<{ lat: number; lng: number } | null>(null);
+  if (fix && !firstFix.current) firstFix.current = { lat: fix.lat, lng: fix.lng };
+  const plan = useMemo(() => {
+    const left = stops.map((s) => ({ lat: s.stop.lat, lng: s.stop.lng })), out: { lat: number; lng: number }[] = [];
+    let at = firstFix.current;
+    while (left.length) {
+      const i = at ? left.reduce((b, c, k) => (haversineKm(at!, c) < haversineKm(at!, left[b]) ? k : b), 0) : 0;
+      at = left[i]; out.push(left.splice(i, 1)[0]);
+    }
+    return out;
+  }, [stops, !!fix]); // eslint-disable-line react-hooks/exhaustive-deps
   const dest = useMemo(() => (next ? { lat: next.stop.lat, lng: next.stop.lng } : null), [next?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const marks = useMemo(() => stops.filter((s) => s.id !== next?.id).map((s, i) => ({ id: s.id, lat: s.stop.lat, lng: s.stop.lng, n: stops.indexOf(s) + 1, done: reached.has(s.id), label: s.child })), [stops, next?.id, reached]);
   const padding = useMemo(() => (wide ? { top: 120, bottom: 60, left: 450, right: 60 } : { top: active ? 150 : 100, bottom: sheetH + 24, left: 16, right: 16 }), [wide, sheetH, active]);
@@ -138,7 +150,7 @@ export default function DriverClient({ name, busNo }: { name: string; busNo?: st
     <Shell title="Driver" name={name} bare>
       <div className="relative h-[calc(100dvh-57px)] min-h-[520px] overflow-hidden bg-ink/5">
         <div className="absolute inset-0">
-          <LiveMap bus={bus} dest={dest} stops={marks} mode={mode} padding={padding} showAccuracy={!active} onInfo={setInfo} onUserMove={() => setMode("free")} />
+          <LiveMap bus={bus} dest={dest} plan={plan} stops={marks} mode={mode} padding={padding} showAccuracy={!active} onInfo={setInfo} onUserMove={() => setMode("free")} />
         </div>
 
         <div className="pointer-events-none absolute inset-x-3 top-3 z-10 md:inset-x-6 md:top-5">

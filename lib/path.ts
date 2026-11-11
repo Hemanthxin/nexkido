@@ -12,10 +12,11 @@ export function buildPath(coords: [number, number][]): Path {
 }
 
 /** Nearest point on the route to p: distance along it, distance away from it, and the point itself. */
-export function project(path: Path, p: LL) {
+export function project(path: Path, p: LL, lo = -Infinity, hi = Infinity) {
   const { pts, cum, k } = path;
   let best = { s: 0, dist: Infinity, lng: pts[0][0], lat: pts[0][1] };
   for (let i = 0; i < pts.length - 1; i++) {
+    if (cum[i + 1] < lo || cum[i] > hi) continue; // only look near where the bus was, so a route that doubles back can't make it jump
     const ax = (pts[i][0] - p.lng) * M * k, ay = (pts[i][1] - p.lat) * M;
     const dx = (pts[i + 1][0] - pts[i][0]) * M * k, dy = (pts[i + 1][1] - pts[i][1]) * M;
     const len2 = dx * dx + dy * dy;

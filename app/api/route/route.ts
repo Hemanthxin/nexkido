@@ -15,9 +15,12 @@ export async function GET(req: Request) {
   if (!u) return Response.json({ error: "Forbidden" }, { status: 403 });
   const q = new URL(req.url).searchParams;
   const from = point(q.get("from")), to = point(q.get("to"));
+  const viaRaw = (q.get("via") ?? "").split(";").filter(Boolean);
+  const via = viaRaw.map(point);
+  if (viaRaw.length > 12 || via.some((v) => !v)) return Response.json({ error: "via must be up to 12 lat,lng points separated by ;" }, { status: 400 });
   if (!from || !to) return Response.json({ error: "from and to must be lat,lng" }, { status: 400 });
   const now = Date.now(), recent = (hits.get(u.id) ?? []).filter((t) => now - t < 60_000);
   if (recent.length >= 30) return Response.json({ error: "Too many route requests" }, { status: 429 });
   hits.set(u.id, [...recent, now]);
-  return Response.json(await getRoute(from, to));
+  return Response.json(await getRoute(from, to, via as { lat: number; lng: number }[]));
 }

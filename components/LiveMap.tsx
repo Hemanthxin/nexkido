@@ -16,7 +16,9 @@ type Pad = { top: number; bottom: number; left: number; right: number };
 
 type Props = {
   bus: Bus | null;
-  dest?: LL | null;                 // where the route line goes (home for a parent, the next stop for a driver)
+  dest?: LL | null;                 // where the bus is heading now (home for a parent, the next stop for a driver): ETA and navigation
+  plan?: LL[];                      // every stop in order: the blue line runs from the start through all of them (defaults to just dest)
+  preview?: LL | null;              // no bus on the road yet: draw the planned route from here to the stops anyway
   stops?: StopMark[];               // other stops, shown as numbered dots
   mode: Mode;
   padding?: Pad;                    // screen area covered by sheets/cards, so the bus is centred in what's left
@@ -63,7 +65,7 @@ export default function LiveMap(props: Props) {
     // everything the animation loop needs between frames
     const S = {
       path: null as Path | null, dur: 0, dist: 0, provider: "", routeAt: 0, routeTry: 0, fetching: false, destKey: "",
-      origin: null as LL | null, full: null as Path | null, fullTry: 0, fullFetching: false, trail: [] as [number, number][], doneAt: 0,
+      origin: null as LL | null, full: null as Path | null, fullTry: 0, fullFetching: false, gen: 0, fullS: -1, fullOff: 0, preLen: 0, planKey: "", trail: [] as [number, number][], previewFit: false,
       s: -1, cur: null as LL | null, disp: null as LL | null, heading: 0, camB: 0, vEma: 0, off: 0,
       srcAt: 0, infoAt: 0, camAt: 0, last: performance.now(), loaded: false, fitted: false, seenFlag: modeFlag.current,
     };
@@ -112,13 +114,16 @@ export default function LiveMap(props: Props) {
     }
 
     /** The whole trip from where it began to the destination, fetched once, so the line reads start to finish like Google. */
-    async function fetchFull(from: LL, to: LL) {
+    async function fetchFull(from: LL, pts: LL[]) {
       S.fullFetching = true; S.fullTry = Date.now();
+      const gen = ++S.gen;
+      const to = pts[pts.length - 1], via = pts.slice(0, -1).slice(0, 12);
       try {
-        const r = await fetch(`/api/route?from=${from.lat},${from.lng}&to=${to.lat},${to.lng}`, { cache: "no-store" });
+        const q = `from=${from.lat},${from.lng}&to=${to.lat},${to.lng}${via.length ? "&via=" + via.map((v) => `${v.lat},${v.lng}`).join(";") : ""}`;
+        const r = await fetch(`/api/route?${q}`, { cache: "no-store" });
         if (!r.ok) throw new Error(String(r.status));
         const j = await r.json();
-        if (Array.isArray(j.coords) && j.coords.length > 1 && S.origin && S.origin.lat === from.lat && S.origin.lng === from.lng) S.full = buildPath(j.coords);
+        if (gen === S.gen && Array.isArray(j.coords) && j.coords.length > 1) { S.full = buildPath(j.coords); S.fullS = -1; S.fullOff = 0; if (j.provider === "straight") S.fullTry = Date.now() - 3000; /* retry soon: that was only a straight line */ }
       } catch { /* the grey trail and the live route still draw; try again later */ }
       S.fullFetching = false;
     }
@@ -151,16 +156,30 @@ export default function LiveMap(props: Props) {
       // destination pin
       if (dest) { destMarker.setLngLat([dest.lng, dest.lat]); if (!destOn) { destMarker.addTo(map); destOn = true; } } else if (destOn) { destMarker.remove(); destOn = false; }
       const dKey = dest ? `${dest.lat.toFixed(5)},${dest.lng.toFixed(5)}` : "";
+      const planPts = (P.current.plan && P.current.plan.length ? P.current.plan : dest ? [dest] : []);
+      const planKey = planPts.map((q) => `${q.lat.toFixed(5)},${q.lng.toFixed(5)}`).join("|");
       const clearLines = () => { (map.getSource("route") as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY); (map.getSource("done") as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY); };
-      const resetLeg = () => { S.origin = null; S.full = null; S.trail = []; S.fullTry = 0; if (originOn) { originMarker.remove(); originOn = false; } };
-      if (dKey !== S.destKey) { S.destKey = dKey; S.path = null; S.s = -1; S.fitted = false; resetLeg(); clearLines(); }
+      const resetLeg = () => { S.gen++; S.origin = null; S.full = null; S.fullS = -1; S.fullOff = 0; S.preLen = 0; S.trail = []; S.fullTry = 0; S.fullFetching = false; S.previewFit = false; if (originOn) { originMarker.remove(); originOn = false; } };
+      if (dKey !== S.destKey) { S.destKey = dKey; S.path = null; S.s = -1; S.fitted = false; clearLines(); }
+      if (planKey !== S.planKey) { S.planKey = planKey; resetLeg(); clearLines(); }
 
       if (!bus) {
-        busMarker.getElement().style.display = "none"; S.cur = null; S.disp = null; S.path = null; resetLeg();
-        clearLines();
+        busMarker.getElement().style.display = "none"; S.cur = null; S.disp = null; S.path = null;
+        const pv = P.current.preview;
+        if (pv && planPts.length) {
+          // the bus hasn't left: show where it will go, from where it started last time
+          if (!S.origin || S.origin.lat !== pv.lat || S.origin.lng !== pv.lng) { resetLeg(); S.origin = { lat: pv.lat, lng: pv.lng }; }
+          originMarker.setLngLat([pv.lng, pv.lat]); if (!originOn) { originMarker.addTo(map); originOn = true; }
+          if (!S.full && !S.fullFetching && now - S.fullTry > 6000) void fetchFull(S.origin, planPts);
+          if (S.full) {
+            (map.getSource("route") as maplibregl.GeoJSONSource | undefined)?.setData(line(S.full.pts));
+            (map.getSource("done") as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY);
+            if (!S.previewFit || modeChanged) { S.previewFit = true; fit(null, dest ?? null, 800, pad); }
+          }
+        } else { resetLeg(); clearLines(); }
         (map.getSource("acc") as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY);
         bubble.style.display = "none"; onInfo?.(null);
-        if (dest && (!S.fitted || modeChanged)) { S.fitted = true; map.easeTo({ center: [dest.lng, dest.lat], zoom: 15.5, bearing: 0, pitch: 0, padding: pad, duration: 700 }); }
+        if (dest && !(pv && planPts.length) && (!S.fitted || modeChanged)) { S.fitted = true; map.easeTo({ center: [dest.lng, dest.lat], zoom: 15.5, bearing: 0, pitch: 0, padding: pad, duration: 700 }); }
         return;
       }
       busMarker.getElement().style.display = "block";
@@ -200,21 +219,26 @@ export default function LiveMap(props: Props) {
       if (dest && !S.fetching && now - S.routeTry > 3000 && (!S.path || now - S.routeAt > 20000 || (S.off > 3 && now - S.routeAt > 5000))) void fetchRoute(disp, dest);
 
       // where this leg began: the trip's first fix (sent by the server), or, on the driver's own screen, where the bus was when the leg started
-      if (!S.origin && dest) { S.origin = bus.start ?? { lat: disp.lat, lng: disp.lng }; S.trail = [[S.origin.lng, S.origin.lat]]; }
-      if (S.origin && dest) {
+      if (!S.origin && planPts.length) { S.origin = bus.start ?? { lat: disp.lat, lng: disp.lng }; S.trail = [[S.origin.lng, S.origin.lat]]; }
+      if (S.origin && planPts.length) {
         originMarker.setLngLat([S.origin.lng, S.origin.lat]);
         if (!originOn) { originMarker.addTo(map); originOn = true; }
-        if (!S.full && !S.fullFetching && now - S.fullTry > 6000 && haversineKm(S.origin, dest) > 0.05) void fetchFull(S.origin, dest);
+        if (!S.full && !S.fullFetching && now - S.fullTry > 6000) void fetchFull(S.origin, planPts);
       }
       const last = S.trail[S.trail.length - 1];
       if (last && haversineKm({ lat: last[1], lng: last[0] }, disp) * 1000 > 12) { S.trail.push([disp.lng, disp.lat]); if (S.trail.length > 3000) S.trail.shift(); }
 
       if (now - S.srcAt > 250 && (S.path ? S.s >= 0 : !!S.full)) {
         S.srcAt = now;
-        const pf = S.full ? project(S.full, disp) : null;
+        let pf = S.full ? (S.fullS >= 0 ? project(S.full, disp, S.fullS - 60, S.fullS + 900) : project(S.full, disp)) : null;
+        if (S.full && pf && pf.dist > 80 && S.fullS >= 0) pf = project(S.full, disp);
         const onFull = !!(pf && S.full && pf.dist <= 80); // on the planned road: draw one clean line, grey behind the bus and blue ahead
+        if (onFull) { S.fullS = pf!.s; S.fullOff = 0; } else if (S.full) S.fullOff += 0.25;
+        // left the planned road for good: plan again from here, keeping the grey trail behind
+        if (S.full && S.fullOff > 8 && !S.fullFetching && now - S.fullTry > 6000) { S.preLen = S.trail.length; void fetchFull(disp, planPts); }
+        const before = S.trail.slice(0, S.preLen);
         const rest = onFull ? sliceFrom(S.full!, pf!.s) : S.path && S.s >= 0 ? sliceFrom(S.path, S.s) : null;
-        const done = onFull ? sliceTo(S.full!, pf!.s) : S.trail.length > 1 ? [...S.trail, [disp.lng, disp.lat] as [number, number]] : null;
+        const done = onFull ? (before.length ? [...before, ...sliceTo(S.full!, pf!.s)] : sliceTo(S.full!, pf!.s)) : S.trail.length > 1 ? [...S.trail, [disp.lng, disp.lat] as [number, number]] : null;
         if (rest) (map.getSource("route") as maplibregl.GeoJSONSource | undefined)?.setData(line(rest));
         (map.getSource("done") as maplibregl.GeoJSONSource | undefined)?.setData(done ? line(done) : EMPTY);
       }

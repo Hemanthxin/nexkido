@@ -14,7 +14,7 @@ type Alert = { id: string; kind: string; message: string; ts: number };
 type BusP = { lat: number; lng: number; heading: number | null; speedKmh: number | null; accuracy: number | null; start?: { lat: number; lng: number } | null; ageMs: number };
 type Snap = {
   child?: string; stop: { name: string; lat: number; lng: number }; busNo?: string; driverName?: string; driverPhone: string | null;
-  active: boolean; startedAt: number | null; bus: BusP | null; alerts: Alert[];
+  active: boolean; startedAt: number | null; depot?: { lat: number; lng: number } | null; bus: BusP | null; alerts: Alert[];
 };
 
 const TITLE: Record<string, string> = { started: "Bus has left", "2km": "Bus is 2 km away", "1km": "Bus is 1 km away", arrived: "Bus has arrived", ended: "Trip complete", changed: "Bus changed" };
@@ -50,7 +50,7 @@ export default function ParentClient({ name }: { name: string }) {
     bus: (p: BusP) => setBus(toBus(p)),
     trip: (t: { active: boolean }) => {
       if (t.active) { seen.current.clear(); setSnap((s) => (s ? { ...s, active: true, alerts: [] } : s)); void load(); }
-      else { setBus(null); setInfo(null); setSnap((s) => (s ? { ...s, active: false, bus: null } : s)); setMode("overview"); }
+      else { setBus(null); setInfo(null); setSnap((s) => (s ? { ...s, active: false, bus: null } : s)); setMode("overview"); void load(); /* picks up where this run started, so the next one's route can be shown */ }
     },
     alert: (a: Alert) => {
       if (seen.current.has(a.id)) return;
@@ -84,7 +84,7 @@ export default function ParentClient({ name }: { name: string }) {
     <Shell title="Parent" name={name} bare>
       <div className="relative h-[calc(100dvh-57px)] min-h-[520px] overflow-hidden bg-ink/5">
         <div className="absolute inset-0">
-          <LiveMap bus={snap.active ? bus : null} dest={dest} mode={mode} padding={padding} showAccuracy onInfo={setInfo} onUserMove={() => setMode("free")} />
+          <LiveMap bus={snap.active ? bus : null} dest={dest} preview={snap.active ? null : snap.depot ?? null} mode={mode} padding={padding} showAccuracy onInfo={setInfo} onUserMove={() => setMode("free")} />
         </div>
 
         <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex items-start justify-between gap-2 md:inset-x-6 md:top-5">

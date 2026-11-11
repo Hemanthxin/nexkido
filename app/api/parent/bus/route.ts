@@ -13,7 +13,7 @@ export async function GET() {
   const live = !!trip?.active && trip.lat != null && trip.lng != null;
   return Response.json({
     child: u.childName, stop: u.stop, busNo: driver?.busNo, driverName: driver?.name, driverPhone: driver?.phone ?? null,
-    active: !!trip?.active, startedAt: trip?.startedAt ?? null,
+    active: !!trip?.active, startedAt: trip?.startedAt ?? null, depot: trip?.depot ?? null,
     bus: live ? busPayload(trip!) : null, // ageMs is measured on the server, so the browser's clock never matters
     alerts,
   });
