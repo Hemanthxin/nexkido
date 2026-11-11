@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import { Logo } from "./Logo";
 import { go } from "@/lib/transition";
 
+export const LiveMap = dynamic(() => import("./LiveMap"), { ssr: false, loading: () => <div className="h-full w-full animate-pulse bg-ink/5" /> });
 export const Map = dynamic(() => import("./MapView"), { ssr: false, loading: () => <div className="panel h-[320px] animate-pulse" /> });
 
 export function Wordmark() {
@@ -34,7 +35,7 @@ export function Banner({ img, pos = "50% 50%", title, sub, children }: { img: st
 export function Shell({ title, name, children, bare = false }: { title: string; name: string; children: React.ReactNode; bare?: boolean }) {
   const out = async () => { await fetch("/api/auth/logout", { method: "POST" }); go("/login"); };
   return (
-    <div className="min-h-screen bg-paper">
+    <div className="min-h-dvh bg-paper">
       <header className="sticky top-0 z-20 flex items-center justify-between border-b border-ink/10 bg-paper/90 px-4 py-3 backdrop-blur md:px-10">
         <Wordmark />
         <div className="flex items-center gap-4 text-sm">
@@ -42,7 +43,7 @@ export function Shell({ title, name, children, bare = false }: { title: string; 
           <button onClick={out} className="btn btn-line !px-4 !py-2">Log out</button>
         </div>
       </header>
-      {bare ? <main>{children}</main> : <main className="mx-auto max-w-6xl px-4 py-8 md:px-10">{children}</main>}
+      {bare ? <main>{children}</main> : <main className="mx-auto max-w-6xl px-4 py-6 md:px-10 md:py-8">{children}</main>}
     </div>
   );
 }

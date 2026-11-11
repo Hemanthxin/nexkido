@@ -1,10 +1,15 @@
 import "./globals.css";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import SmoothScroll from "@/components/SmoothScroll";
 import PageTransition from "@/components/PageTransition";
+import { ToastProvider } from "@/components/Toasts";
+
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#FFB81C" };
 
 export const metadata: Metadata = {
+  appleWebApp: { capable: true, title: "NexKido", statusBarStyle: "default" },
+  icons: { apple: "/icons/icon-192.png" },
   title: "NexKido — where's the school bus?",
   description: "Live GPS tracking, ETA and arrival alerts for school transport. Driver, parent and admin portals.",
 };
@@ -19,7 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <SmoothScroll>
           <PageTransition />
-          {children}
+          <ToastProvider>{children}</ToastProvider>
         </SmoothScroll>
       </body>
     </html>

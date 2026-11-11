@@ -1,26 +1,20 @@
-import { withDB } from "@/lib/db";
+import { findUserById } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
-import { haversineKm, etaMinutes } from "@/lib/geo";
+import { alertsFor, busPayload, getTrip } from "@/lib/live";
 
 export const dynamic = "force-dynamic";
 
+/** A snapshot of the parent's bus. Live changes arrive on /api/stream; this is the starting point and the fallback. */
 export async function GET() {
   const u = await requireRole("parent");
   if (!u) return Response.json({ error: "Forbidden" }, { status: 403 });
-  return withDB((d) => {
-    const driver = d.users.find((x) => x.id === u.driverId);
-    const trip = u.driverId ? d.trips[u.driverId] : undefined;
-    const has = !!trip?.active && trip.lat != null;
-    const km = has ? haversineKm({ lat: trip!.lat!, lng: trip!.lng! }, u.stop!) : null;
-    const age = trip ? Date.now() - trip.updatedAt : null;
-    return Response.json({
-      child: u.childName, stop: u.stop, busNo: driver?.busNo, driverName: driver?.name,
-      active: !!trip?.active,
-      bus: has ? { lat: trip!.lat, lng: trip!.lng, updatedAt: trip!.updatedAt, heading: trip!.heading ?? null, speedKmh: trip!.speed != null ? Math.round(trip!.speed * 3.6) : null, accuracy: trip!.accuracy ?? null } : null,
-      trail: has ? trip!.trail ?? [] : [],
-      stale: age != null && trip?.active ? age > 15_000 : false,
-      distanceKm: km, etaMin: km != null ? etaMinutes(km, trip!.speed != null && trip!.speed * 3.6 >= 8 ? trip!.speed * 3.6 : 25) : null,
-      alerts: d.alerts.filter((a) => a.parentId === u.id).sort((a, b) => b.ts - a.ts).slice(0, 20),
-    });
+  const driver = u.driverId ? await findUserById(u.driverId) : null;
+  const [trip, alerts] = await Promise.all([driver ? getTrip(driver.id) : undefined, alertsFor(u.id)]);
+  const live = !!trip?.active && trip.lat != null && trip.lng != null;
+  return Response.json({
+    child: u.childName, stop: u.stop, busNo: driver?.busNo, driverName: driver?.name, driverPhone: driver?.phone ?? null,
+    active: !!trip?.active, startedAt: trip?.startedAt ?? null,
+    bus: live ? busPayload(trip!) : null, // ageMs is measured on the server, so the browser's clock never matters
+    alerts,
   });
 }

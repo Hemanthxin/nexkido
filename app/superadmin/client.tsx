@@ -5,10 +5,10 @@ import { Shell, Map, Banner } from "@/components/Shell";
 type P = { id: string; name: string; email: string; role: string; school?: string; busNo?: string; childName?: string; driverId?: string; schoolAdminId?: string; stop?: { name: string; lat: number; lng: number } };
 type Admin = P & { drivers: number; parents: number };
 type Act = { id: string; ts: number; actorName: string; role: string; action: string; detail?: string };
-type Data = { admins: Admin[]; drivers: P[]; parents: P[]; trips: Record<string, { active: boolean; lat?: number; lng?: number; updatedAt: number; startedAt: number }>; activity: Act[]; alertsToday: number };
+type Data = { admins: Admin[]; drivers: P[]; parents: P[]; trips: Record<string, { active: boolean; lat?: number; lng?: number; heading?: number; updatedAt: number; startedAt: number }>; activity: Act[]; alertsToday: number };
 
 const ROLE_STYLE: Record<string, string> = {
-  superadmin: "bg-ink text-paper", admin: "bg-accent/15 text-ink", driver: "bg-sun/40 text-ink", parent: "bg-ok/15 text-ok", unknown: "bg-bad/10 text-bad",
+  superadmin: "bg-ink text-paper", admin: "bg-sky text-ink", driver: "bg-sun/40 text-ink", parent: "bg-ok/15 text-ok", unknown: "bg-bad/10 text-bad",
 };
 const ROLE_LABEL: Record<string, string> = { superadmin: "Super admin", admin: "School admin", driver: "Driver", parent: "Parent", unknown: "Unknown" };
 
@@ -49,7 +49,7 @@ export default function SuperClient({ name }: { name: string }) {
   const liveBuses = useMemo(() => d ? d.drivers.filter((x) => d.trips[x.id]?.active && d.trips[x.id].lat != null) : [], [d]);
   const markers = useMemo(() => d ? [
     ...d.parents.filter((p) => p.stop).map((p) => ({ id: p.id, lat: p.stop!.lat, lng: p.stop!.lng, label: `${p.childName || p.name} – ${p.stop!.name}` })),
-    ...liveBuses.map((x) => ({ id: "b" + x.id, lat: d.trips[x.id].lat!, lng: d.trips[x.id].lng!, label: `Bus ${x.busNo || x.name}`, emoji: "bus" })),
+    ...liveBuses.map((x) => ({ id: "b" + x.id, lat: d.trips[x.id].lat!, lng: d.trips[x.id].lng!, label: `Bus ${x.busNo || x.name}`, emoji: "bus", heading: d.trips[x.id].heading ?? null })),
   ] : [], [d, liveBuses]);
 
   if (!d) return <Shell title="Super admin" name={name}><div className="panel h-96 animate-pulse" /></Shell>;
@@ -93,7 +93,7 @@ export default function SuperClient({ name }: { name: string }) {
         <div className="space-y-8 lg:col-span-3">
           <div>
             <h2 className="display mb-3 text-2xl font-extrabold">Live map · all schools</h2>
-            <Map height={320} markers={markers} follow />
+            <div className="h-[250px] overflow-hidden rounded-xl border border-ink/15 md:h-[320px]"><Map fill markers={markers} follow /></div>
             {liveBuses.length === 0 && <p className="mt-2 text-sm text-ink/55">No bus is on a trip right now. Buses appear here while a driver&rsquo;s trip is live.</p>}
           </div>
 
@@ -106,7 +106,7 @@ export default function SuperClient({ name }: { name: string }) {
                 ))}
               </div>
             </div>
-            <div className="max-h-[420px] overflow-y-auto">
+            <div className="max-h-[420px] overflow-y-auto" data-lenis-prevent>
               {feed.length === 0 && <p className="py-4 text-sm text-ink/55">Nothing yet. Sign-ins, trips, alerts and account changes show up here.</p>}
               {feed.map((a) => (
                 <div key={a.id} className="flex items-start gap-3 border-b border-ink/10 py-2.5 text-sm">

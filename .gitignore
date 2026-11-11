@@ -1,4 +1,6 @@
 node_modules
 .next
+.next-prod
 data/db.json
 .env*.local
+tsconfig.tsbuildinfo
